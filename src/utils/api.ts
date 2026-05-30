@@ -1,5 +1,12 @@
 import type { Message } from '../types'
 
+export interface TokenCost {
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  usd: number
+}
+
 export interface ChatResponse {
   type: 'chat' | 'analysis'
   content: string
@@ -9,6 +16,7 @@ export async function streamMessages(
   messages: Message[],
   onToken: (token: string) => void,
   onProgress?: (message: string) => void,
+  onCost?: (cost: TokenCost) => void,
 ): Promise<ChatResponse> {
   const payload = messages.map(m => ({ role: m.role, content: m.content }))
 
@@ -23,6 +31,7 @@ export async function streamMessages(
   const reader = res.body!.getReader()
   const decoder = new TextDecoder()
   let fullContent = ''
+  let analysisContent: string | null = null
 
   while (true) {
     const { done, value } = await reader.read()
@@ -37,16 +46,21 @@ export async function streamMessages(
       try {
         const json = JSON.parse(data)
 
-        // Live progress phase while the analysis runs
         if (json.type === 'progress') {
           onProgress?.(json.message)
           continue
         }
-        // Final analysis result
-        if (json.type === 'analysis') return { type: 'analysis', content: json.content }
+        if (json.type === 'cost') {
+          onCost?.(json as TokenCost)
+          continue
+        }
+        if (json.type === 'analysis') {
+          // capture but keep reading so the trailing cost event arrives
+          analysisContent = json.content
+          continue
+        }
         if (json.type === 'error') throw new Error(json.content)
 
-        // Regular streamed chat text
         const token = json.choices?.[0]?.delta?.content
         if (token) {
           fullContent += token
@@ -59,5 +73,6 @@ export async function streamMessages(
     }
   }
 
+  if (analysisContent !== null) return { type: 'analysis', content: analysisContent }
   return { type: 'chat', content: fullContent }
 }

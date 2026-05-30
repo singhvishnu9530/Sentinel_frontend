@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, KeyboardEvent } from 'react'
 import type { Message, User, ChatSession } from './types'
 import { streamMessages } from './utils/api'
 import { getUser, clearSession } from './utils/auth'
@@ -62,6 +62,7 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [loading, setLoading] = useState(false)
   const [streamingId, setStreamingId] = useState<string | null>(null)
   const [progress, setProgress] = useState<string | null>(null)
+  const [sessionCost, setSessionCost] = useState({ tokens: 0, usd: 0 })
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -141,6 +142,10 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
           ))
         },
         message => setProgress(message),
+        cost => setSessionCost(prev => ({
+          tokens: prev.tokens + cost.total_tokens,
+          usd: prev.usd + cost.usd,
+        })),
       )
 
       if (result.type === 'analysis') {
@@ -161,7 +166,7 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
     }
   }, [input, loading, messages, activeSession, activeId])
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
   }
 
@@ -186,9 +191,21 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
             <h2 className="text-sm font-semibold text-white truncate">{activeSession?.title ?? 'New Analysis'}</h2>
             <p className="text-xs text-slate-600">Requirement Autopsy Engine</p>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs text-emerald-400">Live</span>
+          <div className="flex items-center gap-3">
+            {sessionCost.tokens > 0 && (
+              <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg"
+                style={{ background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.15)' }}
+                title={`${sessionCost.tokens.toLocaleString()} tokens this session`}>
+                <span className="text-xs text-slate-500">💰</span>
+                <span className="text-xs font-medium text-cyan-300">${sessionCost.usd.toFixed(4)}</span>
+                <span className="text-xs text-slate-600">·</span>
+                <span className="text-xs text-slate-500">{(sessionCost.tokens / 1000).toFixed(1)}k tok</span>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-xs text-emerald-400">Live</span>
+            </div>
           </div>
         </header>
 
@@ -200,18 +217,18 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
                 style={{ background: 'linear-gradient(135deg, #06b6d4, #0ea5e9)', boxShadow: '0 0 30px rgba(6,182,212,0.25)' }}>
                 S
               </div>
-              <h2 className="text-xl font-bold text-white mb-2">Requirement Autopsy Engine</h2>
+              <h2 className="text-xl font-bold text-white mb-2">Build Guide Generator</h2>
               <p className="text-sm text-slate-500 max-w-sm mb-8">
-                Paste your project brief and 9 specialist agents will analyse it in parallel — covering business, scope, risks, security, data, DevOps, and more.
+                Describe your project and get a clear build guide — what technology to use, how to start, and what it will cost.
               </p>
               <div className="grid grid-cols-3 gap-3 max-w-lg w-full">
                 {[
-                  { icon: '🔬', label: 'Business Analysis' },
-                  { icon: '🔭', label: 'Scope Detection' },
-                  { icon: '⚙️', label: 'Tech Complexity' },
-                  { icon: '⚠️', label: 'Risk Detection' },
-                  { icon: '🛡️', label: 'Security Analysis' },
-                  { icon: '📊', label: 'Data Architecture' },
+                  { icon: '🧱', label: 'Tech Stack' },
+                  { icon: '🗺️', label: 'Build Plan' },
+                  { icon: '💰', label: 'Cost Estimate' },
+                  { icon: '🛡️', label: 'Security' },
+                  { icon: '⚙️', label: 'Risks' },
+                  { icon: '🚀', label: 'Deployment' },
                 ].map((a, i) => (
                   <div key={i} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs text-slate-400"
                     style={{ background: 'rgba(6,182,212,0.05)', border: '1px solid rgba(6,182,212,0.1)' }}>
@@ -264,7 +281,7 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
               </button>
             </div>
             <p className="mt-2 text-center text-xs text-slate-600">
-              Sentinel will run a full 9-agent analysis when it has enough project context
+              Sentinel will generate a full build guide once it understands your project
             </p>
           </div>
         </div>

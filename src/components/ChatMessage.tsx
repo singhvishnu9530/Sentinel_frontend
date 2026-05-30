@@ -38,7 +38,7 @@ export default function ChatMessage({ message, isStreaming }: Props) {
           )}
         </div>
         {message.content && (
-          <span className="text-xs px-1" style={{ color: '#1e3a4a' }}>
+          <span className="text-[10px] px-1 text-slate-500">
             {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
         )}
