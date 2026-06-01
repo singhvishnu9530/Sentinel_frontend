@@ -7,10 +7,10 @@ interface Props {
 }
 
 const FEATURES = [
-  { icon: '🔬', title: 'Deep Requirement Analysis', desc: '9 specialist AI agents analyse every angle of your project' },
-  { icon: '⚡', title: 'Runs in Parallel', desc: 'All agents run simultaneously — full report in seconds' },
-  { icon: '🎯', title: 'Readiness Verdict', desc: 'Know exactly if your project is ready to start building' },
-  { icon: '🛡️', title: 'Security & NFR Coverage', desc: 'Attack surface, compliance, performance — nothing missed' },
+  { icon: '🧱', title: 'Complete Tech Stack', desc: 'What to use at every layer — with priced alternatives' },
+  { icon: '🗺️', title: 'Step-by-Step Build Plan', desc: 'A clear path from day one, not a blank repo' },
+  { icon: '💰', title: 'Real Cost Estimates', desc: 'Budget tiers and monthly cost, decided up front' },
+  { icon: '🛡️', title: 'Risks & Security Covered', desc: 'Hidden scope, pitfalls, and security flagged early' },
 ]
 
 export default function AuthPage({ onAuth }: Props) {
@@ -19,18 +19,43 @@ export default function AuthPage({ onAuth }: Props) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Password policy: 8+ chars, one uppercase, one lowercase, one number, one special char
+  const passwordRules = [
+    { label: 'At least 8 characters', ok: password.length >= 8 },
+    { label: 'One uppercase letter', ok: /[A-Z]/.test(password) },
+    { label: 'One lowercase letter', ok: /[a-z]/.test(password) },
+    { label: 'One number', ok: /[0-9]/.test(password) },
+    { label: 'One special character (!@#$…)', ok: /[^A-Za-z0-9]/.test(password) },
+  ]
+  const passwordValid = passwordRules.every(r => r.ok)
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
+    setNotice('')
+
+    if (mode === 'signup' && !passwordValid) {
+      setError('Password does not meet the requirements below.')
+      return
+    }
+
     setLoading(true)
     try {
-      const user = mode === 'login'
-        ? await login(email, password)
-        : await signup(name, email, password)
-      saveUser(user)
-      onAuth(user)
+      if (mode === 'login') {
+        const user = await login(email, password)
+        saveUser(user)
+        onAuth(user)
+      } else {
+        // Sign up, then require an explicit login — do NOT auto-enter the app.
+        await signup(name, email, password)
+        setMode('login')
+        setName('')
+        setPassword('')
+        setNotice('Account created! Please sign in to continue.')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {
@@ -68,14 +93,14 @@ export default function AuthPage({ onAuth }: Props) {
             AI-Powered Project Analysis
           </div>
           <h1 className="text-4xl font-bold text-white leading-tight mb-4">
-            Autopsy your<br />
+            From brief to<br />
             <span style={{ background: 'linear-gradient(135deg, #22d3ee, #38bdf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-              requirements
+              build guide
             </span><br />
-            before you build
+            in 90 seconds
           </h1>
           <p className="text-slate-400 text-base leading-relaxed">
-            9 specialist agents analyse your project brief in parallel — surfacing risks, hidden scope, security gaps, and technical complexity before a single line of code is written.
+            Share a project brief and Sentinel turns it into a clear, costed build guide — the right tech stack, a step-by-step plan, budget, risks, and security — so any engineer can start building right away.
           </p>
         </div>
 
@@ -143,7 +168,24 @@ export default function AuthPage({ onAuth }: Props) {
                 style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
                 onFocus={e => e.currentTarget.style.border = '1px solid rgba(6,182,212,0.6)'}
                 onBlur={e => e.currentTarget.style.border = '1px solid rgba(255,255,255,0.08)'} />
+              {/* Password requirements — only during signup, only while typing */}
+              {mode === 'signup' && password.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {passwordRules.map((r, i) => (
+                    <li key={i} className={`flex items-center gap-2 text-xs ${r.ok ? 'text-cyan-400' : 'text-slate-500'}`}>
+                      <span>{r.ok ? '✓' : '○'}</span> {r.label}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
+
+            {notice && (
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs text-cyan-300"
+                style={{ background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.2)' }}>
+                <span>✓</span> {notice}
+              </div>
+            )}
 
             {error && (
               <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs text-red-300"
@@ -152,7 +194,7 @@ export default function AuthPage({ onAuth }: Props) {
               </div>
             )}
 
-            <button type="submit" disabled={loading}
+            <button type="submit" disabled={loading || (mode === 'signup' && !passwordValid)}
               className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-50 mt-2"
               style={{ background: 'linear-gradient(135deg, #06b6d4, #0ea5e9)', boxShadow: '0 0 24px rgba(6,182,212,0.3)' }}>
               {loading ? 'Please wait…' : mode === 'login' ? 'Sign In →' : 'Create Account →'}
@@ -161,7 +203,7 @@ export default function AuthPage({ onAuth }: Props) {
 
           <p className="text-center text-xs text-slate-600 mt-6">
             {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
-            <button onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError('') }}
+            <button onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); setNotice('') }}
               className="text-cyan-400 hover:text-cyan-300 font-medium transition-colors">
               {mode === 'login' ? 'Sign up free' : 'Sign in'}
             </button>

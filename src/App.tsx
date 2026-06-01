@@ -1,22 +1,24 @@
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from 'react'
 import type { Message, User, ChatSession } from './types'
-import { streamMessages } from './utils/api'
+import { streamMessages, extractFile } from './utils/api'
 import { getUser, clearSession } from './utils/auth'
 import AuthPage from './components/AuthPage'
 import ChatMessage from './components/ChatMessage'
 import TypingIndicator from './components/TypingIndicator'
 import Sidebar from './components/Sidebar'
 
-const SESSIONS_KEY = 'sentinel_sessions'
-
 function generateId() {
   return Math.random().toString(36).slice(2)
 }
 
+// Sessions are scoped per user so one account never sees another's history.
+function sessionsKey(userId: number) {
+  return `sentinel_sessions_${userId}`
+}
 
-function loadSessions(): ChatSession[] {
+function loadSessions(userId: number): ChatSession[] {
   try {
-    const raw = localStorage.getItem(SESSIONS_KEY)
+    const raw = localStorage.getItem(sessionsKey(userId))
     if (!raw) return []
     const sessions = JSON.parse(raw) as ChatSession[]
     return sessions.map(s => ({
@@ -30,8 +32,8 @@ function loadSessions(): ChatSession[] {
   }
 }
 
-function saveSessions(sessions: ChatSession[]) {
-  localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions))
+function saveSessions(userId: number, sessions: ChatSession[]) {
+  localStorage.setItem(sessionsKey(userId), JSON.stringify(sessions))
 }
 
 function newSession(): ChatSession {
@@ -46,16 +48,17 @@ function newSession(): ChatSession {
 export default function App() {
   const [user, setUser] = useState<User | null>(() => getUser())
   if (!user) return <AuthPage onAuth={setUser} />
-  return <Chat user={user} onLogout={() => { clearSession(); setUser(null) }} />
+  // key on user.id so switching accounts fully re-initialises Chat state (no stale sessions)
+  return <Chat key={user.id} user={user} onLogout={() => { clearSession(); setUser(null) }} />
 }
 
 function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    const s = loadSessions()
+    const s = loadSessions(user.id)
     return s.length ? s : [newSession()]
   })
   const [activeId, setActiveId] = useState<string>(() => {
-    const s = loadSessions()
+    const s = loadSessions(user.id)
     return s.length ? s[0].id : sessions[0]?.id ?? ''
   })
   const [input, setInput] = useState('')
@@ -63,8 +66,30 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [streamingId, setStreamingId] = useState<string | null>(null)
   const [progress, setProgress] = useState<string | null>(null)
   const [sessionCost, setSessionCost] = useState({ tokens: 0, usd: 0 })
+  const [locked, setLocked] = useState(!!user.locked)
+  const [lockedUntil, setLockedUntil] = useState<string | null>(user.locked_until ?? null)
+  const [showUpgrade, setShowUpgrade] = useState(false)
+  const [extracting, setExtracting] = useState(false)
+  const [attachedFile, setAttachedFile] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return
+    setExtracting(true)
+    try {
+      const { text, filename } = await extractFile(file)
+      setInput(prev => (prev ? prev + '\n\n' : '') + text)
+      setAttachedFile(filename)
+      requestAnimationFrame(autoResize)
+    } catch (err) {
+      setAttachedFile(`⚠ ${err instanceof Error ? err.message : 'Could not read file'}`)
+    } finally {
+      setExtracting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
 
   const activeSession = sessions.find(s => s.id === activeId) ?? sessions[0]
   const messages = activeSession?.messages ?? []
@@ -74,8 +99,8 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
   }, [messages, loading])
 
   useEffect(() => {
-    saveSessions(sessions)
-  }, [sessions])
+    saveSessions(user.id, sessions)
+  }, [sessions, user.id])
 
   const updateSession = (id: string, updates: Partial<ChatSession>) => {
     setSessions(prev => prev.map(s => s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s))
@@ -146,9 +171,17 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
           tokens: prev.tokens + cost.total_tokens,
           usd: prev.usd + cost.usd,
         })),
+        user.id,
+        info => { setLocked(info.locked); setLockedUntil(info.locked_until ?? null) },
       )
 
-      if (result.type === 'analysis') {
+      if (result.type === 'limit') {
+        // Remove the empty placeholder — the lock banner conveys the state
+        setSessions(prev => prev.map(s => s.id === activeId
+          ? { ...s, messages: s.messages.filter(m => m.id !== assistantId) }
+          : s
+        ))
+      } else if (result.type === 'analysis') {
         setSessions(prev => prev.map(s => s.id === activeId
           ? { ...s, messages: s.messages.map(m => m.id === assistantId ? { ...m, content: result.content, type: 'analysis' } : m) }
           : s
@@ -172,6 +205,46 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
 
   return (
     <div className="flex h-screen" style={{ background: '#050a14' }}>
+      {/* Upgrade modal — pricing teaser, no real upgrade (coming soon) */}
+      {showUpgrade && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+          onClick={() => setShowUpgrade(false)}>
+          <div onClick={e => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl overflow-hidden"
+            style={{ background: '#0b1322', border: '1px solid rgba(6,182,212,0.25)' }}>
+            <div className="px-6 py-5 text-center"
+              style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.18), rgba(14,165,233,0.1))' }}>
+              <div className="text-3xl mb-2">⚡</div>
+              <h3 className="text-lg font-bold text-white">Sentinel Pro</h3>
+              <p className="text-xs text-slate-400 mt-1">Unlimited analyses & priority processing</p>
+            </div>
+            <div className="px-6 py-5">
+              <div className="flex items-baseline justify-center gap-1 mb-4">
+                <span className="text-3xl font-bold text-white">$19</span>
+                <span className="text-sm text-slate-500">/ month</span>
+              </div>
+              <ul className="space-y-2 mb-5 text-sm text-slate-300">
+                <li className="flex gap-2"><span className="text-cyan-400">✓</span> Unlimited build guides</li>
+                <li className="flex gap-2"><span className="text-cyan-400">✓</span> No token limits</li>
+                <li className="flex gap-2"><span className="text-cyan-400">✓</span> Priority analysis speed</li>
+                <li className="flex gap-2"><span className="text-cyan-400">✓</span> Team sharing & history</li>
+              </ul>
+              <div className="rounded-xl px-4 py-3 text-center mb-3"
+                style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)' }}>
+                <p className="text-sm font-semibold text-yellow-300">🚧 Coming soon</p>
+                <p className="text-xs text-slate-500 mt-0.5">Paid plans aren't live yet — your limit resets automatically.</p>
+              </div>
+              <button onClick={() => setShowUpgrade(false)}
+                className="w-full py-2.5 rounded-xl text-sm font-medium text-slate-300 transition-all"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Sidebar
         sessions={sessions}
         activeId={activeId}
@@ -258,21 +331,72 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
         {/* Input */}
         <div className="shrink-0 border-t px-6 py-4" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(7,7,15,0.9)' }}>
           <div className="max-w-3xl mx-auto">
+            {/* Usage-limit / upgrade banner */}
+            {locked && (
+              <div className="mb-3 flex items-center gap-3 px-4 py-3 rounded-xl"
+                style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                <span className="text-lg">🚫</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-red-300">You've used your 10,000 free tokens</p>
+                  <p className="text-xs text-slate-400">
+                    {lockedUntil
+                      ? `Free access returns on ${new Date(lockedUntil).toLocaleDateString([], { month: 'short', day: 'numeric' })}, or upgrade to keep going.`
+                      : 'Upgrade to Pro to continue.'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowUpgrade(true)}
+                  className="shrink-0 px-4 py-2 rounded-lg text-xs font-semibold text-white transition-all"
+                  style={{ background: 'linear-gradient(135deg, #06b6d4, #0ea5e9)' }}>
+                  ⚡ Upgrade to Pro
+                </button>
+              </div>
+            )}
+            {/* Attached file indicator */}
+            {(attachedFile || extracting) && (
+              <div className="mb-2 flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg w-fit"
+                style={{ background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.15)' }}>
+                <span>{extracting ? '⏳' : '📄'}</span>
+                <span className="text-slate-300">{extracting ? 'Reading file…' : attachedFile}</span>
+                {!extracting && (
+                  <button onClick={() => setAttachedFile(null)} className="text-slate-500 hover:text-slate-300">✕</button>
+                )}
+              </div>
+            )}
             <div className="flex gap-3 items-end p-2 rounded-2xl"
               style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              {/* Hidden file input + attach button */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp,.gif"
+                className="hidden"
+                onChange={e => handleFile(e.target.files?.[0])}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loading || extracting || locked}
+                title="Attach a PDF, Word doc, text file, or image"
+                className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all disabled:opacity-30 text-slate-400 hover:text-cyan-400"
+                style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+              </button>
               <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={e => { setInput(e.target.value); autoResize() }}
                 onKeyDown={handleKeyDown}
-                placeholder="Describe your project or paste a brief… (Shift+Enter for new line)"
+                placeholder={locked ? 'Upgrade to Pro to continue…' : 'Describe your project, paste a brief, or attach a file…'}
                 rows={1}
-                disabled={loading}
-                className="flex-1 resize-none bg-transparent text-slate-100 placeholder-slate-600 px-3 py-2 text-sm outline-none leading-relaxed"
+                disabled={loading || locked}
+                className="flex-1 resize-none bg-transparent text-slate-100 placeholder-slate-600 px-3 py-2 text-sm outline-none leading-relaxed disabled:opacity-50"
               />
               <button
                 onClick={handleSubmit}
-                disabled={!input.trim() || loading}
+                disabled={!input.trim() || loading || locked}
                 className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all disabled:opacity-30"
                 style={{ background: 'linear-gradient(135deg, #06b6d4, #0ea5e9)' }}>
                 <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -281,7 +405,7 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
               </button>
             </div>
             <p className="mt-2 text-center text-xs text-slate-600">
-              Sentinel will generate a full build guide once it understands your project
+              Describe your project, paste a brief, or attach a PDF / Word / text / image file
             </p>
           </div>
         </div>

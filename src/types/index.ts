@@ -2,6 +2,11 @@ export interface User {
   id: number
   name: string
   email: string
+  plan?: 'free' | 'pro'
+  tokens_used?: number
+  token_limit?: number | null
+  locked?: boolean
+  locked_until?: string | null
 }
 
 
