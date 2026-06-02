@@ -1,4 +1,35 @@
-import type { Message } from '../types'
+import type { Message, ChatSession } from '../types'
+import { authHeader, clearSession } from './auth'
+
+// ── Server-side chat session persistence (user_id comes from the JWT) ─────────
+
+export async function fetchSessions(): Promise<ChatSession[]> {
+  const res = await fetch('/api/sessions', { headers: authHeader() })
+  if (!res.ok) throw new Error('Could not load sessions')
+  const data = await res.json()
+  // revive timestamps (stored as ISO strings)
+  return (data.sessions as ChatSession[]).map(s => ({
+    ...s,
+    messages: s.messages.map(m => ({ ...m, timestamp: new Date(m.timestamp) })),
+  }))
+}
+
+export async function saveSession(session: ChatSession): Promise<void> {
+  await fetch('/api/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    body: JSON.stringify({
+      id: session.id,
+      title: session.title,
+      messages: session.messages,
+      updatedAt: session.updatedAt,
+    }),
+  })
+}
+
+export async function deleteSessionRemote(sessionId: string): Promise<void> {
+  await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE', headers: authHeader() })
+}
 
 export interface TokenCost {
   prompt_tokens: number
@@ -24,17 +55,22 @@ export async function streamMessages(
   onToken: (token: string) => void,
   onProgress?: (message: string) => void,
   onCost?: (cost: TokenCost) => void,
-  userId?: number,
   onLimit?: (info: LimitInfo) => void,
 ): Promise<ChatResponse> {
   const payload = messages.map(m => ({ role: m.role, content: m.content }))
 
   const res = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: payload, user_id: userId }),
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+    body: JSON.stringify({ messages: payload }),
   })
 
+  if (res.status === 401) {
+    // token missing/expired — force re-login
+    clearSession()
+    window.location.reload()
+    throw new Error('Session expired — please sign in again')
+  }
   if (!res.ok) throw new Error(`Server error: ${res.status}`)
 
   const reader = res.body!.getReader()

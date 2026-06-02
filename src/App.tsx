@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from 'react'
 import type { Message, User, ChatSession } from './types'
-import { streamMessages, extractFile } from './utils/api'
-import { getUser, clearSession } from './utils/auth'
+import { streamMessages, extractFile, fetchSessions, saveSession, deleteSessionRemote } from './utils/api'
+import { getUser, getToken, clearSession } from './utils/auth'
 import AuthPage from './components/AuthPage'
 import ChatMessage from './components/ChatMessage'
 import TypingIndicator from './components/TypingIndicator'
@@ -9,31 +9,6 @@ import Sidebar from './components/Sidebar'
 
 function generateId() {
   return Math.random().toString(36).slice(2)
-}
-
-// Sessions are scoped per user so one account never sees another's history.
-function sessionsKey(userId: number) {
-  return `sentinel_sessions_${userId}`
-}
-
-function loadSessions(userId: number): ChatSession[] {
-  try {
-    const raw = localStorage.getItem(sessionsKey(userId))
-    if (!raw) return []
-    const sessions = JSON.parse(raw) as ChatSession[]
-    return sessions.map(s => ({
-      ...s,
-      messages: s.messages
-        .filter(m => m.id !== 'welcome')
-        .map(m => ({ ...m, timestamp: new Date(m.timestamp) })),
-    }))
-  } catch {
-    return []
-  }
-}
-
-function saveSessions(userId: number, sessions: ChatSession[]) {
-  localStorage.setItem(sessionsKey(userId), JSON.stringify(sessions))
 }
 
 function newSession(): ChatSession {
@@ -46,21 +21,17 @@ function newSession(): ChatSession {
 }
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(() => getUser())
-  if (!user) return <AuthPage onAuth={setUser} />
+  // Require BOTH a user record AND a valid JWT — a stale user with no token
+  // must re-authenticate (otherwise every API call would 401).
+  const [user, setUser] = useState<User | null>(() => (getToken() ? getUser() : null))
+  if (!user || !getToken()) return <AuthPage onAuth={setUser} />
   // key on user.id so switching accounts fully re-initialises Chat state (no stale sessions)
   return <Chat key={user.id} user={user} onLogout={() => { clearSession(); setUser(null) }} />
 }
 
 function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
-  const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    const s = loadSessions(user.id)
-    return s.length ? s : [newSession()]
-  })
-  const [activeId, setActiveId] = useState<string>(() => {
-    const s = loadSessions(user.id)
-    return s.length ? s[0].id : sessions[0]?.id ?? ''
-  })
+  const [sessions, setSessions] = useState<ChatSession[]>(() => [newSession()])
+  const [activeId, setActiveId] = useState<string>(() => sessions[0]?.id ?? '')
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [streamingId, setStreamingId] = useState<string | null>(null)
@@ -98,9 +69,28 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
 
+  // Load this user's sessions from the backend on mount.
   useEffect(() => {
-    saveSessions(user.id, sessions)
-  }, [sessions, user.id])
+    let cancelled = false
+    fetchSessions()
+      .then(loaded => {
+        if (cancelled || loaded.length === 0) return
+        setSessions(loaded)
+        setActiveId(loaded[0].id)
+      })
+      .catch(() => { /* keep the empty New Analysis session */ })
+    return () => { cancelled = true }
+  }, [user.id])
+
+  // Persist the active session to the backend whenever it settles (not mid-stream).
+  useEffect(() => {
+    if (loading) return // don't spam the server on every streamed token
+    const active = sessions.find(s => s.id === activeId)
+    // only persist sessions that actually have content
+    if (active && active.messages.length > 0) {
+      void saveSession(active)
+    }
+  }, [loading, sessions, activeId, user.id])
 
   const updateSession = (id: string, updates: Partial<ChatSession>) => {
     setSessions(prev => prev.map(s => s.id === id ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s))
@@ -114,6 +104,7 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
   }
 
   const handleDelete = (id: string) => {
+    void deleteSessionRemote(id)
     setSessions(prev => {
       const next = prev.filter(s => s.id !== id)
       if (next.length === 0) {
@@ -171,7 +162,6 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
           tokens: prev.tokens + cost.total_tokens,
           usd: prev.usd + cost.usd,
         })),
-        user.id,
         info => { setLocked(info.locked); setLockedUntil(info.locked_until ?? null) },
       )
 
@@ -337,7 +327,7 @@ function Chat({ user, onLogout }: { user: User; onLogout: () => void }) {
                 style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
                 <span className="text-lg">🚫</span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-red-300">You've used your 10,000 free tokens</p>
+                  <p className="text-sm font-semibold text-red-300">You've used your 1,000,000 free tokens</p>
                   <p className="text-xs text-slate-400">
                     {lockedUntil
                       ? `Free access returns on ${new Date(lockedUntil).toLocaleDateString([], { month: 'short', day: 'numeric' })}, or upgrade to keep going.`
