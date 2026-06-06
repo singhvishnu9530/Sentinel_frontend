@@ -79,6 +79,15 @@ npm run preview    # preview the production build
 
 ---
 
+## 🤖 Use of AI Tools
+
+In line with the hackathon guidelines, the following AI-powered tools were used during development of this project:
+
+- **GitHub Copilot** — in-editor code completion and boilerplate suggestions.
+- **AI coding assistants (LLM-based)** — used for scaffolding components, refactoring, and documentation drafts.
+
+These tools accelerated routine work, but the **architecture, product decisions, agent design, and engineering judgment are our own.** Every AI-generated suggestion was reviewed, tested, and adapted to fit the system. Key human-led decisions include: the multi-agent build-guide approach (over a simple readiness score), the vendor-neutral / anti-hallucination grounding strategy, the parallel LangGraph orchestration, the server-side security model (JWT + bcrypt, keys never in the client), and the budget-tier output design. AI-generated boilerplate alone was never treated as a finished solution.
+
 ---
 
 *Part of Sentinel AI · Built for the Microsoft Hackathon.*
