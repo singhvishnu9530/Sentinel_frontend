@@ -72,16 +72,27 @@ export interface ToolService {
   cost: string
 }
 
+export interface DeploymentGroup {
+  area: string
+  points: string[]
+}
+
+export interface Overview {
+  what_it_is: string
+  how_it_works: string
+  why_this_approach: string
+}
+
 export interface BuildBlueprint {
   project_type: string
   problem_statement: string
-  overview: string
+  overview: Overview
   budget_tiers: BudgetTier[]
   stack: BlueprintLayer[]
   implementation_techniques: TechniqueNote[]
   tools_and_services: ToolService[]
   build_order: BuildPhase[]
-  deployment: string
+  deployment: DeploymentGroup[]
   estimated_monthly_cost: string
   cost_breakdown: string[]
   decisions_to_make: string[]

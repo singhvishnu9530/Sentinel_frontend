@@ -20,13 +20,14 @@ function heading(text: string) {
   })
 }
 
-function para(text: string, opts: { italic?: boolean; color?: string; size?: number } = {}) {
+function para(text: string, opts: { italic?: boolean; bold?: boolean; color?: string; size?: number } = {}) {
   return new Paragraph({
     spacing: { after: 140 },
     children: [
-      new TextRun({ 
-        text, 
-        italics: opts.italic, 
+      new TextRun({
+        text,
+        italics: opts.italic,
+        bold: opts.bold,
         color: opts.color ?? '334155', // Slate-700
         size: opts.size ?? 22          // 11pt default body
       })
@@ -88,7 +89,18 @@ export async function exportBlueprintDocx(bp: BuildBlueprint) {
 
   // 2. Overview
   children.push(heading('2. Overview'))
-  children.push(para(bp.overview))
+  if (bp.overview?.what_it_is) {
+    children.push(para('What it is', { bold: true }))
+    children.push(para(bp.overview.what_it_is))
+  }
+  if (bp.overview?.how_it_works) {
+    children.push(para('How it works', { bold: true }))
+    children.push(para(bp.overview.how_it_works))
+  }
+  if (bp.overview?.why_this_approach) {
+    children.push(para('Why this approach', { bold: true }))
+    children.push(para(bp.overview.why_this_approach))
+  }
 
   // 3. Budget tiers
   if (bp.budget_tiers?.length) {
@@ -213,9 +225,12 @@ export async function exportBlueprintDocx(bp: BuildBlueprint) {
   })
 
   // 8. Deployment
-  if (bp.deployment) {
+  if (bp.deployment?.length) {
     children.push(heading('8. Deployment'))
-    children.push(para(bp.deployment))
+    bp.deployment.forEach(group => {
+      children.push(para(group.area, { bold: true }))
+      group.points.forEach(pt => children.push(bullet(pt)))
+    })
   }
 
   // 9. Cost

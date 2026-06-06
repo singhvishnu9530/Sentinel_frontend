@@ -1,5 +1,9 @@
 import type { User } from '../types'
 
+// In dev this is "" → requests go to /auth, /api and Vite proxies them.
+// In production set VITE_API_URL to the deployed backend URL (e.g. https://api.example.com).
+export const API_BASE = import.meta.env.VITE_API_URL ?? ''
+
 const USER_KEY = 'sentinel_user'
 const TOKEN_KEY = 'sentinel_token'
 
@@ -48,7 +52,7 @@ async function parseJsonOrThrow(res: Response, fallbackMsg: string) {
 }
 
 export async function signup(name: string, email: string, password: string): Promise<User> {
-  const res = await fetch('/auth/signup', {
+  const res = await fetch(`${API_BASE}/auth/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, email, password }),
@@ -58,7 +62,7 @@ export async function signup(name: string, email: string, password: string): Pro
 }
 
 export async function login(email: string, password: string): Promise<User> {
-  const res = await fetch('/auth/login', {
+  const res = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -69,13 +73,13 @@ export async function login(email: string, password: string): Promise<User> {
 }
 
 export async function upgradeToPro(): Promise<User> {
-  const res = await fetch('/auth/upgrade', { method: 'POST', headers: authHeader() })
+  const res = await fetch(`${API_BASE}/auth/upgrade`, { method: 'POST', headers: authHeader() })
   const data = await parseJsonOrThrow(res, 'Upgrade failed')
   return data.user as User
 }
 
 export async function fetchUsage(): Promise<User> {
-  const res = await fetch('/auth/usage', { headers: authHeader() })
+  const res = await fetch(`${API_BASE}/auth/usage`, { headers: authHeader() })
   const data = await parseJsonOrThrow(res, 'Could not fetch usage')
   return data.user as User
 }

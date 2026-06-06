@@ -1,10 +1,10 @@
 import type { Message, ChatSession } from '../types'
-import { authHeader, clearSession } from './auth'
+import { API_BASE, authHeader, clearSession } from './auth'
 
 // ── Server-side chat session persistence (user_id comes from the JWT) ─────────
 
 export async function fetchSessions(): Promise<ChatSession[]> {
-  const res = await fetch('/api/sessions', { headers: authHeader() })
+  const res = await fetch(`${API_BASE}/api/sessions`, { headers: authHeader() })
   if (!res.ok) throw new Error('Could not load sessions')
   const data = await res.json()
   // revive timestamps (stored as ISO strings)
@@ -15,7 +15,7 @@ export async function fetchSessions(): Promise<ChatSession[]> {
 }
 
 export async function saveSession(session: ChatSession): Promise<void> {
-  await fetch('/api/sessions', {
+  await fetch(`${API_BASE}/api/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify({
@@ -28,7 +28,7 @@ export async function saveSession(session: ChatSession): Promise<void> {
 }
 
 export async function deleteSessionRemote(sessionId: string): Promise<void> {
-  await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE', headers: authHeader() })
+  await fetch(`${API_BASE}/api/sessions/${sessionId}`, { method: 'DELETE', headers: authHeader() })
 }
 
 export interface TokenCost {
@@ -59,7 +59,7 @@ export async function streamMessages(
 ): Promise<ChatResponse> {
   const payload = messages.map(m => ({ role: m.role, content: m.content }))
 
-  const res = await fetch('/api/chat', {
+  const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeader() },
     body: JSON.stringify({ messages: payload }),
@@ -138,7 +138,7 @@ export interface ExtractResult {
 export async function extractFile(file: File): Promise<ExtractResult> {
   const form = new FormData()
   form.append('file', file)
-  const res = await fetch('/api/extract', { method: 'POST', body: form })
+  const res = await fetch(`${API_BASE}/api/extract`, { method: 'POST', body: form })
   const data = await res.json()
   if (!res.ok) throw new Error(data.detail || 'Could not read file')
   return data as ExtractResult

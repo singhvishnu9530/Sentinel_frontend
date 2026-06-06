@@ -168,7 +168,18 @@ export default function AnalysisReport({ result }: { result: AnalysisResult }) {
 
         {/* 2. Overview */}
         <Section open={allOpen} n="2" title="Overview">
-          <p className="text-sm text-slate-300 leading-relaxed">{bp.overview}</p>
+          <div className="space-y-3">
+            {[
+              { label: 'What it is', text: bp.overview?.what_it_is },
+              { label: 'How it works', text: bp.overview?.how_it_works },
+              { label: 'Why this approach', text: bp.overview?.why_this_approach },
+            ].filter(x => x.text).map((x, i) => (
+              <div key={i}>
+                <p className="text-xs font-semibold uppercase tracking-wider text-cyan-400 mb-1">{x.label}</p>
+                <p className="text-sm text-slate-300 leading-relaxed">{x.text}</p>
+              </div>
+            ))}
+          </div>
         </Section>
 
         {/* 3. Budget tiers — pick by wallet */}
@@ -306,10 +317,22 @@ export default function AnalysisReport({ result }: { result: AnalysisResult }) {
         </Section>
 
         {/* 8. Deployment */}
-        {bp.deployment && (
+        {bp.deployment?.length > 0 && (
           <Section open={allOpen} n="8" title="Deployment">
-            <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
-              <p className="text-sm text-slate-300 leading-relaxed">{bp.deployment}</p>
+            <div className="space-y-3">
+              {bp.deployment.map((group, i) => (
+                <div key={i} className="rounded-xl p-4"
+                  style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-cyan-400 mb-2">{group.area}</p>
+                  <ul className="space-y-1.5">
+                    {group.points.map((pt, j) => (
+                      <li key={j} className="flex gap-2 text-sm text-slate-300 leading-relaxed">
+                        <span className="text-cyan-600 mt-0.5 shrink-0">•</span>{pt}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           </Section>
         )}
